@@ -1,16 +1,19 @@
 import os
 import logging
 from typing import Dict
+from uuid import uuid4
+
 from yt_dlp import YoutubeDL
 from dotenv import load_dotenv
 from telegram import Update, InlineQueryResultVideo, MessageEntity
 from telegram.ext import filters, MessageHandler, ApplicationBuilder, CommandHandler, ContextTypes, InlineQueryHandler
 from telegram.constants import ChatAction
 
+DOWNLOADS_DIR = 'downloads'
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO
 )
-
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
@@ -54,9 +57,36 @@ async def inline_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def send_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.chat.send_chat_action(ChatAction.UPLOAD_VIDEO)
-    video_info = extract_video_info(update.message.text)
-    await update.message.reply_video(video_info.get('url'), reply_to_message_id=update.message.message_id)
+    await update.message.reply_chat_action(ChatAction.UPLOAD_VIDEO)
+    video_bytes = download_video(update.message.text)
+    if not video_bytes:
+        await update.message.reply_text('Failed to download / Not supported :(', reply_to_message_id=update.message.message_id)
+        return
+    await update.message.reply_video(video_bytes, reply_to_message_id=update.message.message_id)
+
+
+def download_video(url: str) -> bytes | None:
+    try:
+        unique_id = uuid4()
+        ydl_opts = {
+            'format': 'bv[ext=mp4][height<=1080]+ba/b',
+            'outtmpl': os.path.join(DOWNLOADS_DIR, f'{unique_id}.%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+        }
+        with YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            video_ext = info.get('ext')
+
+        video_path = os.path.join(DOWNLOADS_DIR, f'{unique_id}.{video_ext}')
+        with open(video_path, 'rb') as f:
+            video_bytes = f.read()
+        os.remove(video_path)
+        return video_bytes
+
+    except Exception as e:
+        logging.error(e)
+        return None
 
 
 def extract_video_info(url: str) -> Dict[str, str] | None:
