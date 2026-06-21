@@ -14,7 +14,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the bot code
 COPY main.py .
-COPY .env .
 
 # Create downloads directory
 RUN mkdir -p downloads
